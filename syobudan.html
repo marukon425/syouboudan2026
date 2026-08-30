@@ -1,0 +1,507 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Zen+Old+Mincho&display=swap" rel="stylesheet">
+    <style>
+        html, body{
+            margin: 0;
+            padding: 0;
+            background-color: rgb(255, 255, 254);
+            font-family: "Zen Old Mincho", serif;
+        }
+
+        tr, td{
+            padding: 0;
+        }
+
+        #test_img{
+            opacity: 80%;
+            position: absolute;
+            z-index: 100;
+            width: 297mm;         /* A4横の幅 */
+            height: 210mm;        /* A4横の高さ */
+        }
+        main{
+            position: absolute;
+            z-index: 200;
+            width: 297mm;         /* A4横の幅 */
+            height: 210mm;        /* A4横の高さ */
+        }
+
+        #main_table{
+            position: absolute;
+            left: 115px;
+            top: 143px;
+            font-size: 12px;
+            /* 列幅を固定する。これをしないと、セルの中身（点検項目の文字数）に
+               よって列幅が変わり、点検日列の縦罫線が行ごとに左右へズレていく */
+            table-layout: fixed;
+            width: 885px;                 /* 285 + 100 * 6 */
+            border-collapse: collapse;
+        }
+
+        /* すべてのセルに完全に同じ罫線を指定する。
+           border-collapse: collapse では隣り合うセルが辺を共有し、
+           「太い方が勝つ → style → 色」の順で1本だけ採用される。
+           宣言がバラバラだと辺ごとに採用結果が変わり、
+           一部だけ線が太く見える。全セル同一にすれば迷いが出ない */
+        #main_table td{
+            border: 1px solid ;
+            vertical-align: top;
+            overflow: hidden;            /* 中身がはみ出しても隣列の罫線を崩さない */
+        }
+
+        /* 1列目（グループ名＋点検項目）のセル。幅は固定。
+           position: relative にして、中身をこのセル基準で絶対配置する */
+        .item-lists{
+            width: 285px;
+            position: relative;
+        }
+        /* セル内を「グループ名 | 点検項目」の横並びにする内側ラッパー。
+           ※ <td> 自体に display:flex を掛けると列幅計算から外れて罫線が
+             ズレるので、flex は中の div 側に掛ける。
+           ※ 高さ100%はテーブルセル内だと不安定なので、絶対配置＋inset:0で
+             セルの縦横いっぱいに広げる（水色ボックスが行の高さまで伸びる） */
+        .cell-flex{
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            display: flex;
+        }
+
+        .main-item{
+            background-color: rgba(255, 255, 255, 0);
+            flex: 0 0 95px;             /* 幅95pxで固定 */
+            display: flex;
+            justify-content: center;    /* 横方向中央 */
+            align-items: center;        /* 縦方向中央 */
+            text-align: center;
+            line-height: 1.15;
+            border-right: 1px solid;
+        }
+
+        .sub-item{
+            margin-left: 5px;
+            line-height: 1.4;
+            white-space: nowrap;        /* 項目名を勝手に折り返させない（1項目=1行） */
+            font-size: 11px;            /* 長い項目名でも列内に収まるよう少し小さめ */
+        }
+
+        /* 見出しの日付セル。中に「表示用の <span>」と「実際に日付を選ぶ
+           <input type="date">」を重ねて置く。
+           input 側は透明にしてネイティブ表示を隠し、選んだ値は JS で
+           「〇月〇日」に整形して <span> に書き込む */
+        .date-cell{
+            position: relative;
+            padding: 0;
+        }
+        .date-cell .date-disp{
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            display: flex;
+            align-items: center;          /* 縦中央 */
+            justify-content: flex-end;    /* 右寄せ（元の text-align:right 相当） */
+            padding-right: 5px;
+            pointer-events: none;         /* クリックは下の input へ通す */
+            color: #000;
+        }
+        .date-cell .date-disp:empty::before{
+            content: "月　　日";          /* 未入力のときの表示（黒・月と日の間を空ける） */
+            color: #000;
+        }
+        .date-cell .date-input{
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            width: 100%;
+            height: 100%;
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            border: none;
+            background: transparent;
+            font: inherit;
+            color: transparent;          /* ネイティブの日付表示は隠す */
+            cursor: pointer;
+        }
+        /* カレンダーアイコンは見た目上隠す（クリックは有効なまま） */
+        .date-cell .date-input::-webkit-calendar-picker-indicator{
+            opacity: 0;
+        }
+
+        /* 空セルに入れる記入欄。セルの縦横いっぱいに広げ、枠や背景は消して
+           下地のセル罫線だけが見えるようにする。行の高さはセル側で決まる。
+           line-height は .sub-item と合わせ、入力した記号が項目名の行と揃うようにする */
+        #main_table td.has-input{
+            position: relative;         /* 中の textarea を絶対配置で重ねる基準 */
+        }
+        .cell-input{
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            width: 100%;
+            height: 100%;
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0 4px;
+            border: none;
+            outline: none;
+            background: transparent;
+            resize: none;
+            overflow: hidden;
+            font-family: inherit;
+            font-size: 11px;
+            line-height: 1.4;
+        }
+
+        .head-table{
+            position: absolute;
+            left: 115px;
+            top: 102px;
+            height: 30px;
+            font-size: 12px;
+            /* 列幅を固定する。これをしないと、セルの中身（点検項目の文字数）に
+               よって列幅が変わり、点検日列の縦罫線が行ごとに左右へズレていく */
+            table-layout: fixed;
+            border-collapse: collapse;
+        }
+        /* head-table のセルにも罫線を付ける（#main_table td のルールは
+           #main_table 内にしか効かないため、ここで別途指定する必要がある） */
+        .head-table td{
+            border: 1px solid;
+            padding: 2px 4px;
+            vertical-align: middle;
+            overflow: hidden;
+        }
+
+        /* 画面右上に固定する操作ボタン（印刷 / 入力クリア） */
+        .toolbar{
+            position: fixed;
+            top: 8px;
+            right: 8px;
+            z-index: 1000;
+            display: flex;
+            gap: 6px;
+        }
+        .toolbar button{
+            font-family: inherit;
+            font-size: 13px;
+            padding: 6px 12px;
+            cursor: pointer;
+        }
+
+        /* 印刷時の設定：A4横向き1枚に画像を収める */
+        @media print {
+            /* 用紙をA4・横向きに、余白なしで指定 */
+            @page {
+                size: A4 landscape;
+                margin: 0;
+            }
+            html, body {
+                background: #fff;      /* 画面用の背景色は印刷しない */
+            }
+            #test_img {
+                width: 297mm;         /* A4横の幅 */
+                height: 210mm;        /* A4横の高さ */
+                object-fit: contain;  /* 縦横比を保ったままページ内に収める（はみ出さない） */
+                display: block;
+            }
+            .no-print { display: none !important; }   /* 印刷ではボタンを隠す */
+        }
+    </style>
+</head>
+<body>
+    <!-- <img id="test_img" src="スキャン_20260829 (3).png" alt=""> -->
+    <main>
+        <div class="toolbar no-print">
+            <button type="button" id="printBtn">印刷</button>
+            <button type="button" id="clearBtn">入力クリア</button>
+        </div>
+        <p style="position: absolute; z-index: 100; top: 53px; left: 115px; font-size: 11px;">様式第3号 (第21条関係)</p>
+        <p style="position: absolute; z-index: 100; top: 70px; left: 460px; font-size: 12px; letter-spacing: 13px;">消防自動車等点検票</p>
+        <table class="head-table">
+            <tr>
+                <td style="width: 88px;">所属名</td>
+                <td style="width: 88px; text-align: center;">彦島分団</td>
+                <td style="width: 50px;">分団</td>
+                <td style="width: 88px; text-align: center;">２・７</td>
+                <td style="width: 25px; text-align: center;">部</td>
+            </tr>
+        </table>
+        <table class="head-table" style="left: 588px;">
+            <tr>
+                <td style="width: 65px; text-align: center;">車両種別</td>
+                <td style="width: 108px; text-align: center;" ></td>
+                <td style="width: 65px; text-align: center;">車両番号</td>
+                <td style="width: 110px; text-align: center;"></td>
+            </tr>
+        </table>
+        <table id="main_table">
+            <tr style="height: 34px;">
+                <td style="width: 285px; position: relative;">
+                    <!-- セルの左上→右下を結ぶ斜線。preserveAspectRatio="none" と
+                         パーセント座標で、セルの縦横比に関係なく角から角へ引く。
+                         vector-effect="non-scaling-stroke" で線は常に1px -->
+                    <svg style="position: absolute; top: 0; left: 0; width: 100%; height: 100%;"
+                         preserveAspectRatio="none" aria-hidden="true">
+                        <line x1="0" y1="0" x2="100%" y2="100%"
+                              stroke="black" stroke-width="1" vector-effect="non-scaling-stroke" />
+                    </svg>
+                    <!-- 文字は斜線の上に出す（position: relative で SVG より前面に） -->
+                    <div style="position: relative; margin: 0 6px;">
+                        <div style="text-align: end;">点検日</div>
+                        <div>点検内容</div>
+                    </div>
+                </td>
+                <td class="date-cell" style="width: 95px;"><span class="date-disp"></span><input type="date" class="date-input"></td>
+                <td class="date-cell" style="width: 95px;"><span class="date-disp"></span><input type="date" class="date-input"></td>
+                <td class="date-cell" style="width: 95px;"><span class="date-disp"></span><input type="date" class="date-input"></td>
+                <td class="date-cell" style="width: 95px;"><span class="date-disp"></span><input type="date" class="date-input"></td>
+                <td class="date-cell" style="width: 95px;"><span class="date-disp"></span><input type="date" class="date-input"></td>
+                <td class="date-cell" style="width: 95px;"><span class="date-disp"></span><input type="date" class="date-input"></td>
+            </tr>
+            <tr id="brake-parking" style="height: 66px;">
+                <td class="item-lists">
+                    <div class="cell-flex">
+                        <div class="main-item">
+                            ブレーキペダル<br>
+                            駐車ブレーキ
+                        </div>
+                        <div class="sub-item">
+                            液量<br>
+                            踏みしろ<br>
+                            引きしろ<br>
+                            きき具合
+                        </div>
+                    </div>
+                </td>
+                <td></td>
+                <td></td>
+                <td></td>
+                <td></td>
+                <td></td>
+                <td></td>
+            </tr>
+            <tr id="tire" style="height: 50px;">
+                <td class="item-lists">
+                    <div class="cell-flex">
+                        <div class="main-item">
+                            タイヤ
+                        </div>
+                        <div class="sub-item">
+                            空気圧<br>
+                            亀裂・損傷<br>
+                            摩耗・溝の深さ
+                        </div>
+                    </div>
+                </td>
+                <td></td>
+                <td></td>
+                <td></td>
+                <td></td>
+                <td></td>
+                <td></td>
+            </tr>
+            <tr id="battery" style="height: 33px;">
+                <td class="item-lists">
+                    <div class="cell-flex">
+                        <div class="main-item">
+                            バッテリー
+                        </div>
+                        <div class="sub-item">
+                            液量<br>
+                            ターミナルの緩み
+                        </div>
+                    </div>
+                </td>
+                <td></td>
+                <td></td>
+                <td></td>
+                <td></td>
+                <td></td>
+                <td></td>
+            </tr>
+            <tr id="engine" style="height: 81px;">
+                <td class="item-lists">
+                    <div class="cell-flex">
+                        <div class="main-item">
+                            エンジン
+                        </div>
+                        <div class="sub-item">
+                            冷却水量<br>
+                            オイル量・色<br>
+                            燃料2／3以上<br>
+                            異音<br>
+                            加速状態
+                        </div>
+                    </div>
+                </td>
+                <td></td>
+                <td></td>
+                <td></td>
+                <td></td>
+                <td></td>
+                <td></td>
+            </tr>
+            <tr id="winker" style="height: 33px;">
+                <td class="item-lists">
+                    <div class="cell-flex">
+                        <div class="main-item">
+                            灯火装置<br>
+                            方向指示器
+                        </div>
+                        <div class="sub-item">
+                            点灯・点滅状態<br>
+                            汚れ・損傷
+                        </div>
+                    </div>
+                </td>
+                <td></td>
+                <td></td>
+                <td></td>
+                <td></td>
+                <td></td>
+                <td></td>
+            </tr>
+            <tr id="window" style="height: 83px;">
+                <td class="item-lists">
+                    <div class="cell-flex">
+                        <div class="main-item">
+                            ウインド・<br>ウォッシャー<br>
+                            ワイパー・<br>ミラー
+                        </div>
+                        <div class="sub-item">
+                            液量<br>
+                            ワイパーの作用（前）<br>
+                            ワイパーの作用（後）<br>
+                            ワイパーゴムの損傷<br>
+                            後写鏡・反射鏡の写映
+                        </div>
+                    </div>
+                </td>
+                <td></td>
+                <td></td>
+                <td></td>
+                <td></td>
+                <td></td>
+                <td></td>
+            </tr>
+            <tr id="inspection" style="height: 26px;">
+                <td class="item-lists">
+                    <div class="cell-flex">
+                        <div class="main-item">
+                            外観点検
+                        </div>
+                        <div class="sub-item" style="padding-top: 5px;">
+                            破損・凹み・キズ
+                        </div>
+                    </div>
+                </td>
+                <td></td>
+                <td></td>
+                <td></td>
+                <td></td>
+                <td></td>
+                <td></td>
+            </tr>
+            <tr id="pump" style="height: 67px;">
+                <td class="item-lists">
+                    <div class="cell-flex">
+                        <div class="main-item">
+                            ポンプ装置
+                        </div>
+                        <div class="sub-item">
+                            ポンプレバーの操作具合<br>
+                            吸（放）水口レバーコック操作具合<br>
+                            真空ポンプの操作具合、オイルの量<br>
+                            各種計器、表示灯の損傷
+                        </div>
+                    </div>
+                </td>
+                <td></td>
+                <td></td>
+                <td></td>
+                <td></td>
+                <td></td>
+                <td></td>
+            </tr>
+            <tr id="sign" style="height: 26px;">
+                <td style="text-align: center; vertical-align: middle; ">点検者の押印又はサイン</td>
+                <td></td>
+                <td></td>
+                <td></td>
+                <td></td>
+                <td></td>
+                <td></td>
+            </tr>
+            <tr id="remarks" style="height: 37px;">
+                <td style="text-align: center; vertical-align: middle; ">備　　　　　考</td>
+                <td></td>
+                <td></td>
+                <td></td>
+                <td></td>
+                <td></td>
+                <td></td>
+            </tr>
+        </table>
+        <div style="position: absolute; top: 680px; left: 130px; font-size: 13px;">※不備がある場合 ☑ 備考に詳細を記載</div>
+    </main>
+
+    <script>
+    // 表の中で「まだ何も入っていない空セル」をすべて探し、
+    // セルいっぱいの記入欄（textarea）を差し込む。
+    // 1列目（グループ名・項目名）や見出し行の「月日」などは中身があるので対象外。
+    document.querySelectorAll("#main_table td").forEach(function (td) {
+        if (td.children.length === 0 && td.textContent.trim() === "") {
+            td.classList.add("has-input");
+            var ta = document.createElement("textarea");
+            ta.className = "cell-input";
+            td.appendChild(ta);
+        }
+    });
+
+    // 見出しの日付セル：<input type="date"> で選んだ値を「〇月〇日」に整形して表示する
+    document.querySelectorAll("#main_table .date-input").forEach(function (input) {
+        var disp = input.parentElement.querySelector(".date-disp");
+
+        function render() {
+            if (!input.value) { disp.textContent = ""; return; }   // 未入力 → CSSの「月日」表示に戻る
+            var p = input.value.split("-");                         // "YYYY-MM-DD"
+            disp.textContent = Number(p[1]) + "月" + Number(p[2]) + "日";
+        }
+
+        input.addEventListener("change", render);
+        // セルのどこをクリックしてもカレンダーが開くように
+        input.addEventListener("click", function () {
+            if (typeof input.showPicker === "function") input.showPicker();
+        });
+        render();
+    });
+
+    // 「印刷」ボタン：ブラウザの印刷ダイアログを開く（.no-print は @media print で非表示）
+    document.getElementById("printBtn").addEventListener("click", function () {
+        window.print();
+    });
+
+    // 「入力クリア」ボタン：記入欄（textarea）と日付をすべて空にする
+    document.getElementById("clearBtn").addEventListener("click", function () {
+        if (!window.confirm("入力した内容をすべて消去します。よろしいですか？")) return;
+        document.querySelectorAll("#main_table .cell-input").forEach(function (ta) {
+            ta.value = "";
+        });
+        document.querySelectorAll("#main_table .date-input").forEach(function (input) {
+            input.value = "";
+            input.dispatchEvent(new Event("change"));   // 「〇月〇日」表示を「月　　日」に戻す
+        });
+    });
+    </script>
+</body>
+</html>
